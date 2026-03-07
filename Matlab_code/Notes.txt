@@ -1,0 +1,22 @@
+
+
+Notes:
+
+
+Invest1:		Matlab Program for running model without mutual fund (by Lohano and King)
+
+
+
+Invest1_results:	Matlab Program for results of model without mutual fund (by Lohano and King)
+
+
+
+InvestLxm:		Matlab Program for model with mutual fund (by Lohano and King)
+			Matlab Program for results of model with mutual fund (by Lohano and King)
+
+
+
+
+InvestTools:		Functions from Miranda and Fackler
+
+
