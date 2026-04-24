@@ -1,0 +1,9 @@
+Max: E[U(Net Wealth(T+1))]
+Number of nodes for states =   7   7   5  21
+Number of x levels to find max =  41  21
+Theta in utility func = 0
+Time horizon T =  19
+Number of nodes for error terms =   5   5
+
+ Year  norm1ratio  norm2ratio  max&mean(abs(x-xold)) p(=<1)
+ 19	 0.779596	 0.949296	 2000.0000	 935.5147	 35.6122

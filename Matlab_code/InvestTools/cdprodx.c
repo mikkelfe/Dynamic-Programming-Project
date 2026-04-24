@@ -1,5 +1,6 @@
 #include "mex.h"
 #include <math.h>
+#include <string.h>
 /* 
 % CDPRODX  Iterated direct product of cell array times a matrix 
 % USAGE:
