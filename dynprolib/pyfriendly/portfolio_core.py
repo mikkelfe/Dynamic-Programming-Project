@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import csv
+import importlib
 import math
 
 import matplotlib.pyplot as plt
@@ -8,14 +9,41 @@ import numpy as np
 from numpy.polynomial.hermite import hermgauss
 from numba import njit
 
+try:
+    jax = importlib.import_module("jax")
+    jnp = importlib.import_module("jax.numpy")
+    jax.config.update("jax_enable_x64", True)
+except Exception:  # pragma: no cover - optional dependency
+    jax = None
+    jnp = None
+
 np.set_printoptions(precision=5, suppress=True)
 
 
 @njit(cache=True)
-def utility(w, theta, b=0.0):
-    """CRRA utility with optional kinked linear extension below b."""
+def utility(w, theta, b=0.0, CRRA=True):
+    """CRRA or CARA utility with optional kinked linear extension below b."""
     w_array = np.asarray(w, dtype=np.float64).reshape(-1)
 
+    if not CRRA:
+        # CARA utility: U(w) = 1-exp(-theta * w)
+        if theta <= 0:
+            raise ValueError("theta must be positive for CARA utility")
+        
+        if b > 0:
+            u_b = 1.0 - np.exp(-theta * b)
+            slope = theta * np.exp(-theta * b)
+            values = np.where(
+                w_array >= b,
+                1.0 - np.exp(-theta * w_array),
+                u_b + slope * (w_array - b),
+            )
+        else:
+            values = 1.0 - np.exp(-theta * w_array)
+        
+        return values
+
+    # CRRA utility
     if np.isclose(theta, 0.0):
         values = w_array
     elif np.isclose(theta, 1.0):
@@ -30,7 +58,6 @@ def utility(w, theta, b=0.0):
     else:
         safe_w = np.maximum(w_array, 1e-12)
         crra = (safe_w ** (1 - theta) - 1) / (1 - theta)
-
         if b > 0:
             u_b = (b ** (1 - theta) - 1) / (1 - theta)
             values = np.where(w_array >= b, crra, u_b * w_array)
@@ -103,6 +130,7 @@ class PortfolioConfig:
     node: str = "nodeunif"
     m: tuple[int, int] = (5, 5)
     beta: float = 0.96
+    CRRA: bool = True
     theta: float = 0.0
     b: float = 60_000.0
     T: int = 19
@@ -135,10 +163,11 @@ class PortfolioConfig:
 class PortfolioChoiceModel:
     """Notebook-friendly model aligned with the Dynamic-Programming-Project style."""
 
-    def __init__(self, config=None, farmland_gross_returns=None, sp500_gross_returns=None):
+    def __init__(self, config=None, farmland_gross_returns=None, sp500_gross_returns=None, use_jax=False):
         self.config = config or PortfolioConfig()
 
         self.beta = float(self.config.beta)
+        self.CRRA = bool(self.config.CRRA)
         self.theta = float(self.config.theta)
         self.b = float(self.config.b)
         if self.config.risk_free_gross is None:
@@ -172,6 +201,49 @@ class PortfolioChoiceModel:
         self.actions = self._build_action_grid(self.config.action_grid_step)
         self.state_size = self.wealth_grid.size
         self.action_size = self.actions.shape[0]
+        self.use_jax = bool(use_jax)
+        if self.use_jax and jax is None:
+            raise ImportError("JAX is not installed. Install jax/jaxlib or set use_jax=False.")
+
+        # Precompute action return matrix for fast Bellman updates.
+        self._action_returns = (
+            self.actions[:, 0][:, None] * self.risk_free_gross
+            + self.actions[:, 1][:, None] * self.farmland_gross_returns[None, :]
+            + self.actions[:, 2][:, None] * self.sp500_gross_returns[None, :]
+        )
+
+        if self.use_jax:
+            self._init_jax_backend()
+
+    def _init_jax_backend(self):
+        self._wealth_grid_jax = jnp.asarray(self.wealth_grid)
+        self._action_returns_jax = jnp.asarray(self._action_returns)
+        self._flow_utility_jax = jnp.asarray(
+            utility(self.wealth_grid, self.theta, self.b, self.CRRA)
+        )
+        self._beta_jax = jnp.asarray(self.beta)
+
+        wealth_min = float(self.wealth_grid[0])
+        wealth_max = float(self.wealth_grid[-1])
+
+        def bellman_jit(v):
+            # Shape: (W, A, S)
+            next_wealth = (
+                self._wealth_grid_jax[:, None, None] * self._action_returns_jax[None, :, :]
+            )
+            next_wealth = jnp.clip(next_wealth, wealth_min, wealth_max)
+            interp = jnp.interp(
+                next_wealth.reshape(-1),
+                self._wealth_grid_jax,
+                v,
+            ).reshape(next_wealth.shape)
+            continuation = jnp.mean(interp, axis=2)
+            value_candidates = self._flow_utility_jax[:, None] + self._beta_jax * continuation
+            policy_idx = jnp.argmax(value_candidates, axis=1)
+            v_next = jnp.max(value_candidates, axis=1)
+            return v_next, policy_idx
+
+        self._bellman_jit = jax.jit(bellman_jit)
 
     @staticmethod
     def _build_action_grid(step):
@@ -203,7 +275,7 @@ class PortfolioChoiceModel:
             interpolated[:, col] = np.interp(next_wealth[:, col], self.wealth_grid, V)
         return interpolated.mean(axis=1)
     def bellman_operator(self, V):
-        flow_utility = utility(self.wealth_grid, self.theta, self.b)
+        flow_utility = utility(self.wealth_grid, self.theta, self.b, self.CRRA)
         value_candidates = np.empty((self.state_size, self.action_size))
 
         for a_idx, action in enumerate(self.actions):
@@ -213,12 +285,21 @@ class PortfolioChoiceModel:
         policy_idx = np.argmax(value_candidates, axis=1)
         V_next = value_candidates[np.arange(self.state_size), policy_idx]
         return V_next, policy_idx
+
+    def bellman_operator_jax(self, V):
+        if not self.use_jax:
+            raise RuntimeError("JAX backend is disabled. Initialize with use_jax=True.")
+        v_next, policy_idx = self._bellman_jit(jnp.asarray(V))
+        return np.asarray(v_next), np.asarray(policy_idx, dtype=int)
     def value_iteration(self, tol=1e-6, max_iter=2_000, return_history=False):
         V = np.zeros(self.state_size)
         history = []
 
         for it in range(max_iter):
-            V_next, policy_idx = self.bellman_operator(V)
+            if self.use_jax:
+                V_next, policy_idx = self.bellman_operator_jax(V)
+            else:
+                V_next, policy_idx = self.bellman_operator(V)
             error = np.max(np.abs(V_next - V))
             if return_history:
                 history.append(error)
@@ -233,7 +314,7 @@ class PortfolioChoiceModel:
         return V, policy_idx, max_iter
     def evaluate_policy(self, policy_idx, tol=1e-8, max_iter=3_000):
         V = np.zeros(self.state_size)
-        flow_utility = utility(self.wealth_grid, self.theta, self.b)
+        flow_utility = utility(self.wealth_grid, self.theta, self.b, self.CRRA)
 
         for _ in range(max_iter):
             V_next = np.empty_like(V)
@@ -376,17 +457,43 @@ def tensor_basis_interpolate(phi, coeffs):
     return out @ coeffs
 
 
-def model_utility(y, b, theta):
+def model_utility(y, b, theta, crra=True):
     yv = np.asarray(y, dtype=float)
+    if not crra:
+        if theta <= 0:
+            raise ValueError("theta must be positive for CARA utility")
+        if b > 0:
+            u_b = 1.0 - np.exp(-theta * b)
+            slope = theta * np.exp(-theta * b)
+            return np.where(yv >= b, 1.0 - np.exp(-theta * yv), u_b + slope * (yv - b))
+        return 1.0 - np.exp(-theta * yv)
+
     if theta == 0:
         return yv
     if theta == 1:
         return np.where(yv >= b, np.log(np.maximum(yv, 1e-12)), (np.log(b) / b) * yv)
-    raise ValueError("utility only implemented for theta=0 or theta=1")
+    raise ValueError("CRRA utility only implemented for theta=0 or theta=1")
 
 
-def model_inverse_utility(u, b, theta):
+def model_inverse_utility(u, b, theta, crra=True):
     uv = np.asarray(u, dtype=float)
+    if not crra:
+        if theta <= 0:
+            raise ValueError("theta must be positive for CARA utility")
+
+        if b > 0:
+            u_b = 1.0 - np.exp(-theta * b)
+            slope = theta * np.exp(-theta * b)
+            y = b + (uv - u_b) / np.maximum(slope, 1e-300)
+            mask = uv >= u_b
+            if np.any(mask):
+                safe_one_minus_u = np.maximum(1.0 - uv[mask], 1e-300)
+                y[mask] = -np.log(safe_one_minus_u) / theta
+            return y
+
+        safe_one_minus_u = np.maximum(1.0 - uv, 1e-300)
+        return -np.log(safe_one_minus_u) / theta
+
     if theta == 0:
         return uv
     if theta == 1:
@@ -397,7 +504,7 @@ def model_inverse_utility(u, b, theta):
             safe_uv = np.minimum(uv[mask], np.log(np.finfo(float).max))
             y[mask] = np.exp(safe_uv)
         return y
-    raise ValueError("invutility only implemented for theta=0 or theta=1")
+    raise ValueError("CRRA inverse utility only implemented for theta=0 or theta=1")
 
 
 def feasible_trade_bounds(state, cfg, sminv, smaxv):
@@ -449,6 +556,7 @@ def evaluate_candidate_trade(state, coeffs, t, trade_x, cfg, n, sminv, smaxv, sm
     nn = state.shape[0]
     value = np.zeros(nn, dtype=float)
     n_shocks = 1 if trade_x is None else shock_nodes.shape[0]
+    use_crra = bool(getattr(cfg, "CRRA", True))
 
     for k in range(n_shocks):
         if trade_x is None:
@@ -466,13 +574,18 @@ def evaluate_candidate_trade(state, coeffs, t, trade_x, cfg, n, sminv, smaxv, sm
             wealth = g4[low_land]
             rate = np.full(wealth.size, cfg.rp, dtype=float)
             rate[wealth < 0] = cfg.rn
-            current_val[low_land] = model_utility(((1.0 + rate) ** (cfg.T - t)) * wealth, cfg.b, cfg.theta)
+            current_val[low_land] = model_utility(
+                ((1.0 + rate) ** (cfg.T - t)) * wealth,
+                cfg.b,
+                cfg.theta,
+                use_crra,
+            )
 
         high_land = ~low_land
         if np.any(high_land):
             idx = np.where(high_land)[0]
             if coeffs is None or coeffs.size == 0:
-                current_val[idx] = model_utility(g4[idx], cfg.b, cfg.theta)
+                current_val[idx] = model_utility(g4[idx], cfg.b, cfg.theta, use_crra)
             else:
                 idx_pos = idx[g4[idx] > 0]
                 if idx_pos.size > 0:
@@ -485,13 +598,14 @@ def evaluate_candidate_trade(state, coeffs, t, trade_x, cfg, n, sminv, smaxv, sm
                         for d in range(len(n))
                     ]
                     v_interp = tensor_basis_interpolate(phi, coeffs.reshape(-1, 1)).reshape(-1)
-                    wealth_from_interp = model_inverse_utility(v_interp, cfg.b, cfg.theta)
+                    wealth_from_interp = model_inverse_utility(v_interp, cfg.b, cfg.theta, use_crra)
                     over_cap = g4[idx_pos] > smaxv[3]
                     if np.any(over_cap):
                         wealth_from_interp[over_cap] = model_utility(
                             wealth_from_interp[over_cap] + ((1.0 + cfg.rp) ** (cfg.T - t)) * residual[over_cap],
                             cfg.b,
                             cfg.theta,
+                            use_crra,
                         )
                     current_val[idx_pos] = v_interp
                     if np.any(over_cap):
@@ -502,6 +616,7 @@ def evaluate_candidate_trade(state, coeffs, t, trade_x, cfg, n, sminv, smaxv, sm
                         ((1.0 + cfg.rn) ** (cfg.T - t)) * g4[idx_nonpos],
                         cfg.b,
                         cfg.theta,
+                        use_crra,
                     )
 
         value += current_val * wk
@@ -600,7 +715,237 @@ def get_value_maximizer(name):
     return maximize_value_v1 if name == "vmaxh1" else maximize_value_v2
 
 
-def solve_model_coefficients(cfg):
+def _linear_spline_basis_jax(n, a, b, x):
+    x = jnp.asarray(x, dtype=jnp.float64).reshape(-1)
+    grid = jnp.linspace(a, b, int(n), dtype=jnp.float64)
+    h = (b - a) / (n - 1)
+    idx = jnp.floor((x - a) / h).astype(jnp.int32)
+    idx = jnp.clip(idx, 0, int(n) - 2)
+    left = grid[idx]
+    right = grid[idx + 1]
+    span = jnp.maximum(right - left, 1e-12)
+    w_right = jnp.clip((x - left) / span, 0.0, 1.0)
+    basis = jnp.zeros((x.size, int(n)), dtype=jnp.float64)
+    rows = jnp.arange(x.size)
+    basis = basis.at[rows, idx].set(1.0 - w_right)
+    basis = basis.at[rows, idx + 1].set(w_right)
+    return basis
+
+
+def _rowwise_kronecker_jax(a, b):
+    return (a[:, :, None] * b[:, None, :]).reshape(a.shape[0], a.shape[1] * b.shape[1])
+
+
+def _tensor_basis_interpolate_jax(phi, coeffs):
+    coeffs = jnp.asarray(coeffs, dtype=jnp.float64)
+    out = jnp.asarray(phi[-1], dtype=jnp.float64)
+    for i in range(len(phi) - 2, -1, -1):
+        out = _rowwise_kronecker_jax(jnp.asarray(phi[i], dtype=jnp.float64), out)
+    return out @ coeffs
+
+
+def _model_utility_jax(y, b, theta, crra=True):
+    yv = jnp.asarray(y, dtype=jnp.float64)
+    if not crra:
+        if theta <= 0:
+            raise ValueError("theta must be positive for CARA utility")
+        if b > 0:
+            u_b = 1.0 - jnp.exp(-theta * b)
+            slope = theta * jnp.exp(-theta * b)
+            return jnp.where(yv >= b, 1.0 - jnp.exp(-theta * yv), u_b + slope * (yv - b))
+        return 1.0 - jnp.exp(-theta * yv)
+
+    if theta == 0:
+        return yv
+    if theta == 1:
+        return jnp.where(yv >= b, jnp.log(jnp.maximum(yv, 1e-12)), (jnp.log(b) / b) * yv)
+    raise ValueError("CRRA utility only implemented for theta=0 or theta=1")
+
+
+def _model_inverse_utility_jax(u, b, theta, crra=True):
+    uv = jnp.asarray(u, dtype=jnp.float64)
+    if not crra:
+        if theta <= 0:
+            raise ValueError("theta must be positive for CARA utility")
+        if b > 0:
+            u_b = 1.0 - jnp.exp(-theta * b)
+            slope = theta * jnp.exp(-theta * b)
+            y = b + (uv - u_b) / jnp.maximum(slope, 1e-300)
+            mask = uv >= u_b
+            safe_one_minus_u = jnp.maximum(1.0 - uv, 1e-300)
+            return jnp.where(mask, -jnp.log(safe_one_minus_u) / theta, y)
+        safe_one_minus_u = jnp.maximum(1.0 - uv, 1e-300)
+        return -jnp.log(safe_one_minus_u) / theta
+
+    if theta == 0:
+        return uv
+    if theta == 1:
+        threshold = jnp.log(b)
+        y = (uv * b) / threshold
+        mask = uv >= threshold
+        safe_uv = jnp.minimum(uv, jnp.log(jnp.finfo(jnp.float64).max))
+        return jnp.where(mask, jnp.exp(safe_uv), y)
+    raise ValueError("CRRA inverse utility only implemented for theta=0 or theta=1")
+
+
+def _transition_next_state_jax(state, trade_x, shocks, cfg, sminv, smaxv):
+    next_state = jnp.zeros_like(state, dtype=jnp.float64)
+    growth_r = jnp.exp(cfg.beta0 + cfg.beta1 * jnp.log(state[:, 0]) + shocks[:, 0])
+    growth_p = jnp.exp(cfg.alpha0 + cfg.alpha1 * jnp.log(state[:, 1]) + cfg.alpha2 * jnp.log(state[:, 0]) + shocks[:, 1])
+    next_state = next_state.at[:, 0].set(jnp.clip(growth_r, sminv[0], smaxv[0]))
+    next_state = next_state.at[:, 1].set(jnp.clip(growth_p, sminv[1], smaxv[1]))
+    next_state = next_state.at[:, 2].set(state[:, 2] + trade_x)
+
+    buy_price = (1.0 + cfg.tcb) * state[:, 1] + cfg.fme
+    sell_mask = trade_x < 0
+    buy_price = jnp.where(sell_mask, (1.0 - cfg.tcs) * state[:, 1] + (1.0 - cfg.fds) * cfg.fme, buy_price)
+    sell_price_now = (1.0 - cfg.tcs) * state[:, 1] + (1.0 - cfg.fds) * cfg.fme
+    sell_price_next = (1.0 - cfg.tcs) * next_state[:, 1] + (1.0 - cfg.fds) * cfg.fme
+
+    equity_now = state[:, 3] - sell_price_now * state[:, 2]
+    base_rate = jnp.full(state.shape[0], cfg.rp, dtype=jnp.float64)
+    low_land = next_state[:, 2] < 1.0
+
+    cash_after_trade = equity_now - buy_price * trade_x
+    rate_low_land = jnp.where(cash_after_trade < 0, cfg.rn, base_rate)
+    wealth_low_land = (1.0 + rate_low_land) * cash_after_trade
+
+    cash_after_cost = equity_now - buy_price * trade_x - cfg.cost * next_state[:, 2]
+    rate_high_land = jnp.where(cash_after_cost < 0, cfg.rn, base_rate)
+    operating_assets = (1.0 + rate_high_land) * cash_after_cost + next_state[:, 0] * next_state[:, 2]
+    wealth_high_land = operating_assets + sell_price_next * next_state[:, 2]
+
+    next_wealth = jnp.where(low_land, wealth_low_land, wealth_high_land)
+    return next_state.at[:, 3].set(next_wealth)
+
+
+def _evaluate_candidate_trade_jax(state, coeffs, t, trade_x, cfg, arrays, shock_nodes, shock_weights):
+    state_j = jnp.asarray(state, dtype=jnp.float64)
+    trade_x_j = jnp.asarray(trade_x, dtype=jnp.float64)
+    shock_nodes_j = jnp.asarray(shock_nodes, dtype=jnp.float64)
+    shock_weights_j = jnp.asarray(shock_weights, dtype=jnp.float64)
+    sminv_j = jnp.asarray(arrays["sminv"], dtype=jnp.float64)
+    smaxv_j = jnp.asarray(arrays["smaxv"], dtype=jnp.float64)
+    smin_j = jnp.asarray(arrays["smin"], dtype=jnp.float64)
+    smax_j = jnp.asarray(arrays["smax"], dtype=jnp.float64)
+    use_crra = bool(getattr(cfg, "CRRA", True))
+    coeffs_j = None if coeffs is None else jnp.asarray(coeffs, dtype=jnp.float64)
+
+    def value_for_shock(shock):
+        shocks = jnp.broadcast_to(shock, (state_j.shape[0], shock.shape[0]))
+        next_state = _transition_next_state_jax(state_j, trade_x_j, shocks, cfg, sminv_j, smaxv_j)
+        g4 = next_state[:, 3]
+        current_val = jnp.zeros(state_j.shape[0], dtype=jnp.float64)
+        low_land = next_state[:, 2] < 1.0
+        low_val = _model_utility_jax(((1.0 + jnp.where(g4 < 0, cfg.rn, cfg.rp)) ** (cfg.T - t)) * g4, cfg.b, cfg.theta, use_crra)
+        current_val = jnp.where(low_land, low_val, current_val)
+
+        high_land = jnp.logical_not(low_land)
+        positive = g4 > 0
+        pos_mask = jnp.logical_and(high_land, positive)
+        nonpos_mask = jnp.logical_and(high_land, jnp.logical_not(positive))
+
+        if coeffs_j is None:
+            pos_val = _model_utility_jax(g4, cfg.b, cfg.theta, use_crra)
+            nonpos_val = _model_utility_jax(((1.0 + cfg.rn) ** (cfg.T - t)) * g4, cfg.b, cfg.theta, use_crra)
+            current_val = jnp.where(pos_mask, pos_val, current_val)
+            current_val = jnp.where(nonpos_mask, nonpos_val, current_val)
+        else:
+            g4_cap = jnp.minimum(g4, smaxv_j[3])
+            residual = jnp.maximum(g4 - smaxv_j[3], 0.0)
+            g_eval = next_state.at[:, 3].set(g4_cap)
+            phi = [
+                _linear_spline_basis_jax(int(arrays["n"][d]), float(smin_j[d]), float(smax_j[d]), g_eval[:, d])
+                for d in range(len(arrays["n"]))
+            ]
+            v_interp = _tensor_basis_interpolate_jax(phi, coeffs_j).reshape(-1)
+            wealth_from_interp = _model_inverse_utility_jax(v_interp, cfg.b, cfg.theta, use_crra)
+            wealth_adjusted = _model_utility_jax(
+                wealth_from_interp + ((1.0 + cfg.rp) ** (cfg.T - t)) * residual,
+                cfg.b,
+                cfg.theta,
+                use_crra,
+            )
+            v_final = jnp.where(g4 > smaxv_j[3], wealth_adjusted, v_interp)
+            pos_val = v_final
+            nonpos_val = _model_utility_jax(((1.0 + cfg.rn) ** (cfg.T - t)) * g4, cfg.b, cfg.theta, use_crra)
+            current_val = jnp.where(pos_mask, pos_val, current_val)
+            current_val = jnp.where(nonpos_mask, nonpos_val, current_val)
+
+        return current_val
+
+    values_by_shock = jax.vmap(value_for_shock)(shock_nodes_j)
+    return jnp.sum(values_by_shock * shock_weights_j[:, None], axis=0)
+
+
+def _maximize_value_v1_jax(state, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights):
+    x_low, x_high = feasible_trade_bounds(state, cfg, sminv, smaxv)
+    nn = state.shape[0]
+    x_candidates = np.zeros((cfg.q + 2, nn), dtype=float)
+    v_candidates = np.zeros((cfg.q + 2, nn), dtype=float)
+    gap = (x_high - x_low) / (cfg.q - 1)
+
+    arrays = {"n": n, "sminv": sminv, "smaxv": smaxv, "smin": smin, "smax": smax}
+    for qi in range(cfg.q + 2):
+        if qi == 0:
+            x_q = np.zeros(nn, dtype=float)
+        elif qi == 1:
+            x_q = -state[:, 2]
+        else:
+            x_q = x_low + gap * (qi - 2)
+        x_candidates[qi, :] = x_q
+        v_candidates[qi, :] = np.asarray(
+            _evaluate_candidate_trade_jax(state, coeffs, t, x_q, cfg, arrays, shock_nodes, shock_weights)
+        )
+
+    argmax_idx = np.argmax(v_candidates, axis=0)
+    j = np.arange(state.shape[0])
+    return x_candidates[argmax_idx, j], v_candidates[argmax_idx, j]
+
+
+def _maximize_value_v2_jax(state, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights):
+    x_low, x_high = feasible_trade_bounds(state, cfg, sminv, smaxv)
+    nn = state.shape[0]
+    x_coarse = np.zeros((cfg.q, nn), dtype=float)
+    v_coarse = np.zeros((cfg.q, nn), dtype=float)
+    gap = (x_high - x_low) / (cfg.q - 1)
+
+    arrays = {"n": n, "sminv": sminv, "smaxv": smaxv, "smin": smin, "smax": smax}
+    for qi in range(cfg.q):
+        x_q = x_low + gap * qi
+        x_coarse[qi, :] = x_q
+        v_coarse[qi, :] = np.asarray(
+            _evaluate_candidate_trade_jax(state, coeffs, t, x_q, cfg, arrays, shock_nodes, shock_weights)
+        )
+
+    argmax_coarse = np.argmax(v_coarse, axis=0)
+    j = np.arange(state.shape[0])
+    x_star_coarse = x_coarse[argmax_coarse, j]
+
+    refine_span = 1600.0 / (cfg.q - 1)
+    x_refine_low = np.maximum(x_low, x_star_coarse - refine_span)
+    x_refine_high = np.minimum(x_high, x_star_coarse + refine_span)
+
+    x_fine = np.zeros((cfg.qf + 2, nn), dtype=float)
+    v_fine = np.zeros((cfg.qf + 2, nn), dtype=float)
+    gap_fine = (x_refine_high - x_refine_low) / (cfg.qf - 1)
+    for qi in range(cfg.qf + 2):
+        if qi == 0:
+            x_q = np.zeros(nn, dtype=float)
+        elif qi == 1:
+            x_q = -state[:, 2]
+        else:
+            x_q = x_refine_low + gap_fine * (qi - 2)
+        x_fine[qi, :] = x_q
+        v_fine[qi, :] = np.asarray(
+            _evaluate_candidate_trade_jax(state, coeffs, t, x_q, cfg, arrays, shock_nodes, shock_weights)
+        )
+
+    argmax_fine = np.argmax(v_fine, axis=0)
+    return x_fine[argmax_fine, j], v_fine[argmax_fine, j]
+
+
+def solve_model_coefficients(cfg, use_jax=False):
     arrays = build_model_arrays(cfg)
     n = arrays["n"]
     m = arrays["m"]
@@ -628,11 +973,28 @@ def solve_model_coefficients(cfg):
     trade_x = -active_states[:, 2].copy()
     value_maximizer = get_value_maximizer(choose_value_maximizer(cfg))
 
+    if use_jax and jax is None:
+        raise ImportError("JAX is not installed. Install jax/jaxlib or set use_jax=False.")
+
     for t in range(cfg.T, cfg.t1 - 1, -1):
-        trade_x, value = value_maximizer(
-            active_states, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights
+        if use_jax:
+            if choose_value_maximizer(cfg) == "vmaxh1":
+                trade_x, value = _maximize_value_v1_jax(
+                    active_states, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights
+                )
+            else:
+                trade_x, value = _maximize_value_v2_jax(
+                    active_states, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights
+                )
+        else:
+            trade_x, value = value_maximizer(
+                active_states, coeffs, t, cfg, n, sminv, smaxv, smin, smax, shock_nodes, shock_weights
+            )
+        value_full = np.full(
+            n_points,
+            model_utility(0.0, cfg.b, cfg.theta, bool(getattr(cfg, "CRRA", True))),
+            dtype=float,
         )
-        value_full = np.full(n_points, model_utility(0.0, cfg.b, cfg.theta), dtype=float)
         value_full[active_idx] = value
         coeffs = apply_inverse_basis_chain(inverse_basis, value_full.reshape(-1, 1)).reshape(-1)
         coeffs_over_time[:, t - 1] = coeffs
