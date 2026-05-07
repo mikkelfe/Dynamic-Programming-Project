@@ -523,6 +523,44 @@ def evaluate_candidate_trade(state, coeffs, t, trade_x, cfg, n, sminv, smaxv, sm
     value = np.zeros(nn, dtype=float)
     n_shocks = 1 if trade_x is None else shock_nodes.shape[0]
     use_crra = bool(getattr(cfg, "CRRA", True))
+    backend = _value_backend(cfg)
+
+    if backend == "numba" and trade_x is not None:
+        coeffs_arr = np.empty(0, dtype=np.float64)
+        has_coeffs = False
+        if coeffs is not None:
+            coeffs_arr = np.ascontiguousarray(np.asarray(coeffs, dtype=np.float64).reshape(-1))
+            has_coeffs = coeffs_arr.size > 0
+        return _numba_evaluate_candidate_trade_no_mutual(
+            np.ascontiguousarray(state, dtype=np.float64),
+            np.ascontiguousarray(trade_x, dtype=np.float64),
+            coeffs_arr,
+            has_coeffs,
+            int(t),
+            int(cfg.T),
+            float(cfg.b),
+            float(cfg.theta),
+            use_crra,
+            float(cfg.beta0),
+            float(cfg.beta1),
+            float(cfg.alpha0),
+            float(cfg.alpha1),
+            float(cfg.alpha2),
+            float(cfg.cost),
+            float(cfg.rp),
+            float(cfg.rn),
+            float(cfg.tcs),
+            float(cfg.tcb),
+            float(cfg.fme),
+            float(cfg.fds),
+            np.ascontiguousarray(n, dtype=np.int64),
+            np.ascontiguousarray(smin, dtype=np.float64),
+            np.ascontiguousarray(smax, dtype=np.float64),
+            np.ascontiguousarray(sminv, dtype=np.float64),
+            np.ascontiguousarray(smaxv, dtype=np.float64),
+            np.ascontiguousarray(shock_nodes, dtype=np.float64),
+            np.ascontiguousarray(shock_weights, dtype=np.float64),
+        )
 
     for k in range(n_shocks):
         if trade_x is None:
@@ -1082,6 +1120,113 @@ def _numba_interp4_linear(coeffs, n, smin, smax, x0, x1, x2, x3):
                     idx = j0 * n123 + j1 * n23 + j2 * n3 + j3
                     out += (w0 * w1 * w2 * w3) * coeffs[idx]
     return out
+
+
+@njit(cache=True)
+def _numba_evaluate_candidate_trade_no_mutual(
+    state,
+    trade_x,
+    coeffs,
+    has_coeffs,
+    t,
+    T,
+    b,
+    theta,
+    crra,
+    beta0,
+    beta1,
+    alpha0,
+    alpha1,
+    alpha2,
+    cost,
+    rp,
+    rn,
+    tcs,
+    tcb,
+    fme,
+    fds,
+    n,
+    smin,
+    smax,
+    sminv,
+    smaxv,
+    shock_nodes,
+    shock_weights,
+):
+    n_states = state.shape[0]
+    n_shocks = shock_nodes.shape[0]
+    value = np.zeros(n_states, dtype=np.float64)
+    rn_factor = (1.0 + rn) ** (T - t)
+
+    for i in range(n_states):
+        R = state[i, 0]
+        P = state[i, 1]
+        L = state[i, 2]
+        W = state[i, 3]
+        x = trade_x[i]
+
+        sell_price_now = (1.0 - tcs) * P + (1.0 - fds) * fme
+        buy_price = (1.0 + tcb) * P + fme
+        if x < 0.0:
+            buy_price = sell_price_now
+        equity_now = W - sell_price_now * L
+
+        acc = 0.0
+        for k in range(n_shocks):
+            growth_r = np.exp(beta0 + beta1 * np.log(R) + shock_nodes[k, 0])
+            growth_p = np.exp(alpha0 + alpha1 * np.log(P) + alpha2 * np.log(R) + shock_nodes[k, 1])
+
+            r_next = growth_r
+            if r_next < sminv[0]:
+                r_next = sminv[0]
+            elif r_next > smaxv[0]:
+                r_next = smaxv[0]
+
+            p_next = growth_p
+            if p_next < sminv[1]:
+                p_next = sminv[1]
+            elif p_next > smaxv[1]:
+                p_next = smaxv[1]
+
+            land_post = L + x
+            if land_post < 1.0:
+                cash_after_trade = equity_now - buy_price * x
+                rate_low = rp if cash_after_trade >= 0.0 else rn
+                g4 = (1.0 + rate_low) * cash_after_trade
+                rate_g4 = rp if g4 >= 0.0 else rn
+                vk = _numba_model_utility_scalar(((1.0 + rate_g4) ** (T - t)) * g4, b, theta, crra)
+                acc += shock_weights[k] * vk
+                continue
+
+            sell_price_next = (1.0 - tcs) * p_next + (1.0 - fds) * fme
+            cash_after_cost = equity_now - buy_price * x - cost * land_post
+            rate_high = rp if cash_after_cost >= 0.0 else rn
+            g4 = (1.0 + rate_high) * cash_after_cost + r_next * land_post + sell_price_next * land_post
+
+            if not has_coeffs:
+                vk = _numba_model_utility_scalar(g4, b, theta, crra)
+            elif g4 > 0.0:
+                g4_cap = g4 if g4 <= smaxv[3] else smaxv[3]
+                residual = g4 - g4_cap
+                v_interp = _numba_interp4_linear(coeffs, n, smin, smax, r_next, p_next, land_post, g4_cap)
+                if g4 > smaxv[3]:
+                    wealth_interp = _numba_model_inverse_utility_scalar(v_interp, b, theta, crra)
+                    vk = _numba_model_utility_scalar(
+                        wealth_interp + ((1.0 + rp) ** (T - t)) * residual,
+                        b,
+                        theta,
+                        crra,
+                    )
+                else:
+                    vk = v_interp
+            else:
+                vk = _numba_model_utility_scalar(rn_factor * g4, b, theta, crra)
+
+            acc += shock_weights[k] * vk
+
+        value[i] = acc
+
+    return value
 
 
 @njit(cache=True)
