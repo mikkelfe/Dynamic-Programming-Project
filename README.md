@@ -29,11 +29,9 @@ To run the code, please run the the main notebook **Finished_model.ipynb**
 The code produces all model solutions, tables, and figures used in the paper.
 
 ## Authors
-
-Mikkel Foss Engelsted (hrx712) 
-Mikkel Rath Tornerup (xqt272) 
-Nicklas Busk Jensen (vhr863)
+- Mikkel Foss Engelsted (hrx712) 
+- Mikkel Rath Tornerup (xqt272) 
+- Nicklas Busk Jensen (vhr863)
 
 ## Supervisor
-
-Bertel Schjerning
+- Bertel Schjerning
