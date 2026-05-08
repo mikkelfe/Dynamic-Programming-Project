@@ -16,9 +16,9 @@ data/                  # Input data, if used
 ```
 
 ## Requirements
-The code is written in Python.
+The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
 
-Install the required external packages with:
+The following packages are required to run the code:
 ```bash
 pip install numpy matplotlib pandas numba
 ```
