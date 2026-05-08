@@ -13,6 +13,7 @@ paper/                 # Term paper files
 figures/               # Output figures, if saved
 tables/                # Output tables, if saved
 data/                  # Input data, if used
+```
 
 ## Requirements
 The code is written in Python.
