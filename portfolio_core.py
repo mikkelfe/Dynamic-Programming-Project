@@ -146,33 +146,32 @@ class PortfolioConfig:
     b: float = 60_000.0
     T: int = 19
     t1: int = 1
+    ## Parameters for the mutual fund model
     beta0: float = 1.51181
     beta1: float = 0.742391
     alpha0: float = 0.215
     alpha1: float = 0.908361
     alpha2: float = 0.079432
+    ## Parameters for the shock distribution
     Ee: tuple[float, float] = (0.0, 0.0)
     var_cov: tuple[tuple[float, float], tuple[float, float]] = ((0.030186, 0.0), (0.0, 0.017292))
-    cost: float = 231.0
-    # Economies-of-scale extension in operating cost.
-    # eta=1.0 reproduces the baseline linear per-acre cost.
-    # Total operating cost is normalized to match baseline at cost_scale_ref acres.
-    cost_scale_eta: float = 1.0
-    cost_scale_ref: float = 600.0
-    sminv: tuple[float, float, float, float] = (230.0, 1010.0, 400.0, 0.0)
-    smaxv: tuple[float, float, float, float] = (540.0, 2840.0, 2000.0, 6_000_000.0)
-    rp: float = 0.03
-    rn: float = 0.06
-    tcs: float = 0.06
-    tcb: float = 0.01
-    fme: float = 300.0
-    fds: float = 0.07
-    dau: float = 0.7
-    wealth_min: float = 100.0
+    cost: float = 231.0 # operating cost of farmland
+    cost_scale_eta: float = 1.0 # eta parameter for the operating cost
+    cost_scale_ref: float = 600.0 # reference scale for the operating cost
+    sminv: tuple[float, float, float, float] = (230.0, 1010.0, 400.0, 0.0) # minimum values for the state variables
+    smaxv: tuple[float, float, float, float] = (540.0, 2840.0, 2000.0, 6_000_000.0) # maximum values for the state variables
+    rp: float = 0.03 # risk-premium interest rate
+    rn: float = 0.06 # risk-neutral interest rate
+    tcs: float = 0.06 # transaction cost of selling farmland
+    tcb: float = 0.01 # transaction cost of buying farmland
+    fme: float = 300.0 # fixed maintenance cost of farmland
+    fds: float = 0.07 # fixed depreciation cost of farmland
+    dau: float = 0.7 # rho
+    wealth_min: float = 100.0 
     wealth_max: float = 5_000.0
     wealth_size: int = 250
-    action_grid_step: float = 0.1
-    risk_free_gross: float | None = None
+    action_grid_step: float = 0.1 
+    risk_free_gross: float | None = None # risk-free gross return
     data_dir: str = "Data"
 
 
@@ -181,7 +180,6 @@ class PortfolioChoiceModel:
 
     def __init__(self, config=None, farmland_gross_returns=None, sp500_gross_returns=None):
         self.config = config or PortfolioConfig()
-
         self.beta = float(self.config.beta)
         self.CRRA = bool(self.config.CRRA)
         self.theta = float(self.config.theta)
@@ -226,7 +224,7 @@ class PortfolioChoiceModel:
         )
 
     @staticmethod
-    def _build_action_grid(step):
+    def _build_action_grid(step): 
         if step <= 0 or step > 1:
             raise ValueError("action_grid_step must be in (0, 1]")
 
@@ -283,6 +281,7 @@ class PortfolioChoiceModel:
         if return_history:
             return V, policy_idx, max_iter, history
         return V, policy_idx, max_iter
+
     def evaluate_policy(self, policy_idx, tol=1e-8, max_iter=3_000):
         V = np.zeros(self.state_size)
         flow_utility = utility(self.wealth_grid, self.theta, self.b, self.CRRA)
@@ -297,6 +296,7 @@ class PortfolioChoiceModel:
             V = V_next
 
         return V
+
     def policy_iteration(self, tol=1e-8, max_iter=200):
         policy_idx = np.zeros(self.state_size, dtype=int)
 
@@ -313,33 +313,6 @@ class PortfolioChoiceModel:
     def chosen_actions(self, policy_idx):
         return self.actions[np.asarray(policy_idx, dtype=int)]
 
-
-def plot_value_function(model, V, ax=None, title="Value Function"):
-    if ax is None:
-        _, ax = plt.subplots(figsize=(8, 4.5))
-    ax.plot(model.wealth_grid, V, linewidth=2)
-    ax.set_xlabel("Wealth")
-    ax.set_ylabel("Value")
-    ax.set_title(title)
-    ax.grid(alpha=0.3)
-    return ax
-
-
-def plot_policy_function(model, policy_idx, ax=None, title="Policy Function"):
-    if ax is None:
-        _, ax = plt.subplots(figsize=(8, 4.5))
-
-    chosen = model.chosen_actions(policy_idx)
-    ax.plot(model.wealth_grid, chosen[:, 1], label="Farmland weight", linewidth=2)
-    ax.plot(model.wealth_grid, chosen[:, 2], label="S&P500 weight", linewidth=2)
-    ax.plot(model.wealth_grid, chosen[:, 0], label="Risk-free weight", linewidth=2)
-    ax.set_xlabel("Wealth")
-    ax.set_ylabel("Portfolio share")
-    ax.set_ylim(0, 1)
-    ax.set_title(title)
-    ax.legend()
-    ax.grid(alpha=0.3)
-    return ax
 
 
 def choose_value_maximizer(cfg):
