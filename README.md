@@ -36,4 +36,4 @@ Mikkel Rath Tornerup (xqt272)
 Nicklas Busk Jensen (vhr863)
 
 ## Supervisor
-Bertel Schjerning
+Bertel Schjerning and Max Blesch
