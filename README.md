@@ -6,12 +6,12 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 ## Repository contents
 The main files are:
 
-- Paper.pdf (Our paper)
-- Finished_model.ipynb (Main code. Runs the model, simulations, tables, and figures)
-- portfolio_core.py (Library with the core model and solution functions)
-- figures/ (Our output figures)
-- tables/ (Our output tables)
-- data/  (The data used)  
+- **Paper.pdf** (Our paper)
+- **Finished_model.ipynb** (Main code. Runs the model, simulations, tables, and figures)
+- **portfolio_core.py** (Library with the core model and solution functions)
+- **figures/** (Folder with our output figures)
+- **tables/** (Folder with our output tables)
+- **data/**  (Folder with the data used)  
 
 ## Requirements
 The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
