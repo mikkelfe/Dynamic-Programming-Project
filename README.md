@@ -6,6 +6,9 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 ## Repository contents
 The main files are:
 
+- Finished_model.ipynb
+- portfolio_core.py
+
 ```text
 Finished_model.ipynb   # Runs the model, simulations, tables, and figures
 portfolio_core.py      # Library with the core model and solution functions
