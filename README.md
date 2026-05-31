@@ -11,6 +11,7 @@ The main files and folders are:
 - **model2.ipynb** (Runs the model and simulations for model with mutual fund, and produces all tables and figures.)
 - **numerical_tools.py** (Library with the core numerical tools used to solve model)
 - **utils.py** (Library with util functions used)
+-**estimate_state_equations.ipynb** (Notebook estimating and state equations)
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
 - **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
