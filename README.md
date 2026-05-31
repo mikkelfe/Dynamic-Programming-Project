@@ -1,5 +1,5 @@
 ## Dynamic Programming Term Paper
-This repository contains the code and term paper for the course **Dynamic Programming and Structural Econometrics** at the University of Copenhagen.
+This repository contains the code and term paper for the course **Dynamic Programming - Theory, Computation, and Empirical Applications** at the University of Copenhagen.
 
 The project studies a dynamic portfolio choice model inspired by **Lohano and King (2009)**. The model is used to analyze how a farmer chooses between farmland, financial assets, and debt under uncertainty.
 
