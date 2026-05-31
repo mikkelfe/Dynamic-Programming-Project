@@ -16,8 +16,6 @@ The main files and folders are:
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
 - **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
-- **Matlab_code/**  (Folder with the Matlab code, provided to us by Lohano and King.)  
-- **Lohano and King 2009.pdf** (Original paper by Lohano and King (2009).)
 
 ## Requirements
 The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
