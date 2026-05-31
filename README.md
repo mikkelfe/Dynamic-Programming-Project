@@ -11,7 +11,7 @@ The main files and folders are:
 - **portfolio_core.py** (Library with the core model and solution functions.)
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
-- **Data/**  (Folder with the data used, provided to us by Lohano and King)  
+- **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
 
 ## Requirements
 The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
