@@ -565,8 +565,6 @@ def mutual_vmaxhm(state, coeffs, t, xqi, cfg, arrays, shock_nodes, shock_weights
         vqi = vxq2[ind, j]
         return xmqi, vqi
 
-    # Vectorized search over q2 is fast, but can OOM for large nn.
-    # Use tighter budgets when continuation interpolation is active (coeffs provided).
     if coeffs is None or (hasattr(coeffs, 'size') and coeffs.size == 0):
         max_rows = int(getattr(cfg, 'q2_vectorized_max_rows', 120_000))
     else:
