@@ -7,8 +7,10 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 The main files and folders are:
 
 - **Paper.pdf** (Our paper)
-- **Finished_model.ipynb** (The main code. Runs the model and simulations, and produces all tables and figures.)
-- **portfolio_core.py** (Library with the core model and solution functions.)
+- **model1.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
+- **model2.ipynb** (Runs the model and simulations for model with mutual fund, and produces all tables and figures.)
+- **numerical_tools.py** (Library with the core numerical tools used to solve model)
+- **utils.py** (Library with util functions used)
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
 - **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
