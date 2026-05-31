@@ -7,17 +7,17 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 The main files and folders are:
 
 - **Paper.pdf** (Our paper)
-- **model_with_mutual.ipynb* (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
-- **model_without_mutual.ipynb* (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
+- **model_with_mutual.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
+- **model_without_mutual.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
 - **model2.py** (Constains the code for setting up model with mutual fund.)
 - **model1.py** (Constains the code for setting up model without mutual fund.)
-- **numerical_tools.py** (Library with the core numerical tools used to solve model)
-- **utils.py** (Library with util functions used)
-- **estimate_state_equations.ipynb** (Notebook estimating and state equations)
+- **numerical_tools.py** (Library with the core numerical tools used to solve model.)
+- **utils.py** (Library with util functions used.)
+- **estimate_state_equations.ipynb** (Notebook estimating and state equations.)
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
 - **Data/**  (Folder with the data used, provided to us by Lohano and King.) 
-- **Lohano and King 2009.pdf** (Original paper by Lohano and King (2009))
+- **Lohano and King 2009.pdf** (Original paper by Lohano and King (2009).)
 - **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
 - **Matlab_code/**  (Folder with the Matlab code, provided to us by Lohano and King.)  
 
