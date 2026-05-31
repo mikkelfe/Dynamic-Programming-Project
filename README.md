@@ -26,7 +26,7 @@ pip install numpy matplotlib pandas numba
 ```
 
 ## Running the code
-To run the code, please run the the main notebook **Finished_model.ipynb**
+To run the code, please run the the two main notebooks **model_with_mutual.ipynb** and **model_without_mutual.ipynb**.
 
 The code produces all model solutions, tables, and figures used in the paper.
 
