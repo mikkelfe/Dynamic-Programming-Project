@@ -4,14 +4,14 @@ This repository contains the code and term paper for the course **Dynamic Progra
 The project studies a dynamic portfolio choice model inspired by **Lohano and King (2009)**. The model is used to analyze how a farmer chooses between farmland, financial assets, and debt under uncertainty.
 
 ## Repository contents
-The main files are:
+The main files and folders are:
 
 - **Paper.pdf** (Our paper)
-- **Finished_model.ipynb** (Main code. Runs the model, simulations, tables, and figures)
-- **portfolio_core.py** (Library with the core model and solution functions)
-- **figures/** (Folder with our output figures)
-- **tables/** (Folder with our output tables)
-- **data/**  (Folder with the data used)  
+- **Finished_model.ipynb** (The main code. Runs the model and simulations, and produces all tables and figures.)
+- **portfolio_core.py** (Library with the core model and solution functions.)
+- **Graphs/** (Folder with our output figures.)
+- **Tables/** (Folder with our output tables.)
+- **Data/**  (Folder with the data used, provided to us by Lohano and King)  
 
 ## Requirements
 The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
