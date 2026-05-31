@@ -58,8 +58,6 @@ def mutual_bounds_xm(state, trade_x, cfg):
         trade_x = np.full(state.shape[0], float(trade_x), dtype=float)
     low_land = state[:, 2] + trade_x < 1.0
 
-    # Elementwise handling: rows that sell down below 1 acre should have
-    # mutual bounds fixed at current net wealth, regardless of other rows.
     xml = np.zeros(state.shape[0], dtype=float)
     xmu = np.zeros(state.shape[0], dtype=float)
     if np.any(low_land):
@@ -117,8 +115,6 @@ def mutual_transition_next_state(state, trade_x, mutual_x, shocks, cfg, sminv, s
         + growth_m * mutual_x
     )
 
-    # Elementwise low-land transition to match MATLAB gstate.m behavior:
-    # if L_{t+1}<1, wealth follows EgRM * W_t.
     next_state[:, 3] = wealth_high_land
     if np.any(low_land):
         next_state[low_land, 3] = cfg.EgRM * state[low_land, 3]
@@ -252,7 +248,6 @@ def _numba_mutual_value_function_with_coeffs(
     n_states = state.shape[0]
     n_shocks = shock_nodes.shape[0]
     value = np.zeros(n_states, dtype=np.float64)
-    cont_factor = EgRM ** (T - t + 1)
     rn_factor = (1.0 + rn) ** (T - t)
 
     for i in range(n_states):
@@ -632,7 +627,6 @@ def mutual_vmaxh(state, coeffs, t, cfg, arrays, shock_nodes, shock_weights):
     else:
         gap = (xu - xl) / (cfg.q - 1)
 
-    # MATLAB vx.m: for qi >= 3, xqi = xl + gap * (qi - 3)
     if cfg.q > 0:
         q_idx = np.arange(cfg.q, dtype=float)
         xq[2:, :] = xl[None, :] + q_idx[:, None] * gap[None, :]
@@ -718,8 +712,6 @@ def mutual_vmaxh(state, coeffs, t, cfg, arrays, shock_nodes, shock_weights):
         fine_q = max(1, min(fine_q, int(cfg.q)))
         fine_nq = fine_q + 2
 
-        # Batch fine search by STATES (not by total nn). The old formula
-        # could shrink to batch_size=1 and kill performance.
         max_rows = int(getattr(cfg, 'two_stage_fine_max_rows', getattr(cfg, 'q_batch_max_rows', 100_000)))
         fine_batch = int(getattr(cfg, 'two_stage_fine_state_batch', 0))
         if fine_batch <= 0:
@@ -732,7 +724,6 @@ def mutual_vmaxh(state, coeffs, t, cfg, arrays, shock_nodes, shock_weights):
             state_batch = state[batch_start:batch_end]
             state_batch_rep = np.repeat(state_batch[None, :, :], fine_nq, axis=0).reshape(-1, state.shape[1])
 
-            # VECTORIZED: Build all x_candidates at once using broadcasting
             batch_indices = np.arange(batch_start, batch_end)
             x_candidates = np.zeros((batch_size, fine_nq), dtype=float)
             x_candidates[:, 0] = 0.0
@@ -754,7 +745,6 @@ def mutual_vmaxh(state, coeffs, t, cfg, arrays, shock_nodes, shock_weights):
                 shock_weights,
             )
 
-            # VECTORIZED: Find best value per state using argmax instead of loop
             v_batch_reshaped = v_batch.reshape(batch_size, fine_nq)
             best_idx_per_state = np.argmax(v_batch_reshaped, axis=1)
             best_v_per_state = v_batch_reshaped[np.arange(batch_size), best_idx_per_state]
@@ -798,6 +788,8 @@ class MutualFundModel:
             smaxv=np.array(self.config.smaxv, dtype=float),
         )
         return tuple(next_state[0])
+    
+
 def solve_mutual_coefficients(cfg):
     arrays = utils.build_model_arrays(cfg)
     n = arrays['n']

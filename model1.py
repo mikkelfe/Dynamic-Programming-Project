@@ -43,7 +43,7 @@ class PortfolioChoiceModel:
         self.state_size = self.wealth_grid.size
         self.action_size = self.actions.shape[0]
 
-        # Precompute action return matrix for fast Bellman updates.
+        # Precompute action return matrix
         self._action_returns = (
             self.actions[:, 0][:, None] * self.risk_free_gross
             + self.actions[:, 1][:, None] * self.farmland_gross_returns[None, :]
