@@ -7,14 +7,17 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 The main files and folders are:
 
 - **Paper.pdf** (Our paper)
-- **model1.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
-- **model2.ipynb** (Runs the model and simulations for model with mutual fund, and produces all tables and figures.)
+- **model_with_mutual.ipynb* (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
+- **model_without_mutual.ipynb* (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
+- **model2.py** (Constains the code for setting up model with mutual fund.)
+- **model1.py** (Constains the code for setting up model without mutual fund.)
 - **numerical_tools.py** (Library with the core numerical tools used to solve model)
 - **utils.py** (Library with util functions used)
 -**estimate_state_equations.ipynb** (Notebook estimating and state equations)
 - **Graphs/** (Folder with our output figures.)
 - **Tables/** (Folder with our output tables.)
-- **Data/**  (Folder with the data used, provided to us by Lohano and King.)  
+- **Data/**  (Folder with the data used, provided to us by Lohano and King.) 
+-**Lohano and King 2009.pdf** 
 
 ## Requirements
 The code is written in Python 3.12.7. We recommend using Python 3.12.7 or newer, as older versions may not support all syntax used in the project.
