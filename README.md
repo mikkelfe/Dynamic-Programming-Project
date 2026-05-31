@@ -6,7 +6,6 @@ The project studies a dynamic portfolio choice model inspired by **Lohano and Ki
 ## Repository contents
 The main files and folders are:
 
-- **Paper.pdf** (Our paper)
 - **model_with_mutual.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
 - **model_without_mutual.ipynb** (Runs the model and simulations for model without mutual fund, and produces all tables and figures.)
 - **model2.py** (Constains the code for setting up model with mutual fund.)
