@@ -6,7 +6,7 @@ This repository contains the code and term paper for the course **Dynamic Progra
 
 The project studies a dynamic portfolio choice model inspired by **Lohano and King (2009)**. The model is used to analyze how a farmer chooses between farmland, financial assets, and debt under uncertainty.
 
-The grade we recieved was 12/12 on the danish 7 point grading scale.
+The grade we recieved was 12 on the danish 7 point grading scale.
 
 ## Abstract
 This paper replicates and extends the stochastic dynamic programming model of
